@@ -1,0 +1,13 @@
+pandas
+openpyxl
+numpy
+scikit-learn
+mlflow
+dvc
+matplotlib
+seaborn
+xgboost
+lightgbm
+pyyaml
+pytest
+ipykernel
