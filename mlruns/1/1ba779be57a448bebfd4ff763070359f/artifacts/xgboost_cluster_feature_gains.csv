@@ -1,0 +1,62 @@
+Feature,Gain Importance
+num__Financial_Momentum,0.30310613
+num__Frequency,0.06909958
+num__TotalLineItems,0.047257744
+num__Spend_Cluster_1,0.04681425
+num__Cluster_Median_Delta,0.041954212
+num__PurchaseVelocity,0.039376263
+cat__Country_United Kingdom,0.036666326
+num__Recency,0.034570795
+num__Lifespan_Consistency,0.03343359
+num__CustomerTenureDays,0.031669267
+num__LifetimeSpend,0.031495128
+num__Return_Recency,0.029815178
+num__Spend_Cluster_2,0.029325197
+num__AvgReturnValue,0.029037582
+num__AvgQuantityPerLine,0.026921151
+num__TotalReturnValue,0.026299937
+num__AOV,0.025403364
+num__TotalReturnLineItems,0.024675554
+num__AvgReturnQuantityPerLine,0.023138974
+num__Return_Value_Ratio,0.02135257
+num__Spend_Cluster_0,0.016430078
+cat__Country_Channel Islands,0.013345453
+cat__Country_Germany,0.012090196
+num__Return_Frequency,0.006721462
+num__Spend_Cluster_Unclassified,0.0
+cat__Country_Bahrain,0.0
+cat__Country_Belgium,0.0
+cat__Country_Austria,0.0
+cat__Country_Australia,0.0
+cat__Country_Canada,0.0
+cat__Country_Brazil,0.0
+cat__Country_Denmark,0.0
+cat__Country_Cyprus,0.0
+cat__Country_EIRE,0.0
+cat__Country_Finland,0.0
+cat__Country_France,0.0
+cat__Country_Czech Republic,0.0
+cat__Country_Iceland,0.0
+cat__Country_Israel,0.0
+cat__Country_Italy,0.0
+cat__Country_Japan,0.0
+cat__Country_Lebanon,0.0
+cat__Country_Lithuania,0.0
+cat__Country_Malta,0.0
+cat__Country_Greece,0.0
+cat__Country_Netherlands,0.0
+cat__Country_Nigeria,0.0
+cat__Country_Poland,0.0
+cat__Country_Norway,0.0
+cat__Country_RSA,0.0
+cat__Country_Saudi Arabia,0.0
+cat__Country_Singapore,0.0
+cat__Country_Portugal,0.0
+cat__Country_Spain,0.0
+cat__Country_Sweden,0.0
+cat__Country_Thailand,0.0
+cat__Country_Switzerland,0.0
+cat__Country_USA,0.0
+cat__Country_United Arab Emirates,0.0
+cat__Country_Unspecified,0.0
+cat__Country_West Indies,0.0

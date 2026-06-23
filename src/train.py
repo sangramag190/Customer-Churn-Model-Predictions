@@ -1,141 +1,222 @@
-#!/usr/bin/env python3
+
 import os
 import logging
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Enforce headless rendering to insulate parallel worker loops
+import matplotlib.pyplot as plt
+import joblib
 import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix, roc_curve
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import classification_report, roc_auc_score, roc_curve
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from xgboost import XGBClassifier
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
 
-logger = logging.getLogger("Churn_Model_Training_Pipeline")
+# Configure clean structured logging matrix
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] (TRAIN_PIPELINE) : %(message)s')
+logger = logging.getLogger(__name__)
 
-def build_preprocessor(X_train: pd.DataFrame):
-    numerical_cols = X_train.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=['object', 'category']).columns.tolist()
+def interpret_logistic_coefficients(log_reg_model, feature_names, output_dir):
+    """Extracts, sorts, and translates linear regression weights into Odds Ratios."""
+    coefficients = log_reg_model.coef_[0]
+    if len(coefficients) != len(feature_names):
+        feature_names = [f"Feature_{i}" for i in range(len(coefficients))]
+        
+    coef_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Coefficient (Beta)': coefficients,
+        'Odds Ratio (e^Beta)': np.exp(coefficients)
+    })
+    coef_df['Abs_Impact'] = coef_df['Coefficient (Beta)'].abs()
+    coef_df = coef_df.sort_values(by='Abs_Impact', ascending=False).drop(columns=['Abs_Impact'])
     
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', StandardScaler(), numerical_cols),
-            ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_cols)
-        ]
-    )
-    return preprocessor, numerical_cols, categorical_cols
-
-def run_model_training_pipeline(data_path: str, plots_dir: str):
-    os.makedirs(plots_dir, exist_ok=True)
-    mlflow.set_experiment("Ecommerce_Churn_Prediction_Suite")
+    csv_path = os.path.join(output_dir, "logistic_cluster_feature_impacts.csv")
+    coef_df.to_csv(csv_path, index=False)
+    mlflow.log_artifact(csv_path)
     
+    print("\n=== LOGISTIC REGRESSION VARIABLE LEVEL IMPACT (ODDS RATIOS) ===")
+    print(coef_df.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    return coef_df
+
+def interpret_xgboost_importance(xgb_model, feature_names, output_dir):
+    """Extracts and ranks features based on their Gain importance within the tree structures."""
+    importances = xgb_model.feature_importances_
+    if len(importances) != len(feature_names):
+        feature_names = [f"Feature_{i}" for i in range(len(importances))]
+        
+    xgb_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Gain Importance': importances
+    }).sort_values(by='Gain Importance', ascending=False)
+    
+    csv_path = os.path.join(output_dir, "xgboost_cluster_feature_gains.csv")
+    xgb_df.to_csv(csv_path, index=False)
+    mlflow.log_artifact(csv_path)
+    
+    print("\n=== XGBOOST ENSEMBLE VARIABLE LEVEL IMPACT (GAIN) ===")
+    print(xgb_df.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    return xgb_df
+
+def run_cluster_based_training_pipeline(data_path:str,plots_dir:str):
+    """Executes ingestion, split processing, grid evaluation tuning, and local serialization blocks."""
+    logger.info(f"💾 Ingesting processed cluster matrix from workspace: {data_path}")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Missing analytical target frame at path location: {data_path}")
+        
     df = pd.read_csv(data_path)
-    X = df.drop(columns=['Customer ID', 'Is_Churned'])
-    y = df['Is_Churned']
     
-    # Stratified split to enforce balanced evaluation distributions
+    # Define primary model targets and remove keys/leakage blocks
+    target_col = 'Is_Churned'
+    drop_cols = ['Customer ID', target_col]
+    
+    X = df.drop(columns=[c for c in drop_cols if c in df.columns])
+    y = df[target_col]
+    
+    # Split using stratified baseline constraints to preserve target balance ratios
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, stratify=y, random_state=42
+        X, y, test_size=0.25, random_state=42, stratify=y
     )
     
-    preprocessor, numerical_cols, categorical_cols = build_preprocessor(X_train)
-    X_train_arr = preprocessor.fit_transform(X_train)
-    X_test_arr = preprocessor.transform(X_test)
+    # Isolate feature types for scikit-learn preprocessing ColumnTransformer mapping
+    numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
     
-    cat_encoder = preprocessor.named_transformers_['cat']
-    encoded_cat_features = cat_encoder.get_feature_names_out(categorical_cols).tolist() if categorical_cols else []
-    all_features = numerical_cols + encoded_cat_features
+    num_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
     
-    X_train_df = pd.DataFrame(X_train_arr, columns=all_features)
-    X_test_df = pd.DataFrame(X_test_arr, columns=all_features)
+    preprocessor = ColumnTransformer([
+        ('num', num_pipeline, numerical_cols),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_cols)
+    ])
     
-    # Explicit feature drop step for Logistic Regression to cure severe multicollinearity
-    linear_drop_cols = ['Lifespan_Consistency', 'Recency', 'LifetimeSpend']
-    X_train_linear = X_train_df.drop(columns=linear_drop_cols, errors='ignore')
-    X_test_linear = X_test_df.drop(columns=linear_drop_cols, errors='ignore')
+    # Compute native custom balancing metrics to counter residual noise scale shifts
+    pos_count = np.sum(y_train == 1)
+    neg_count = np.sum(y_train == 0)
+    calculated_scale_weight = float(neg_count) / float(pos_count)
     
-    scale_weight = (len(y_train) - sum(y_train)) / sum(y_train)
-    
+    # Setup the multi-model dictionary grids
     model_configs = {
         "Logistic_Regression": {
-            "model": LogisticRegression(class_weight='balanced', max_iter=2000, random_state=42),
-            "data": (X_train_linear, X_test_linear),
-            "params": {"C": [0.01, 0.1, 1.0, 10.0], "penalty": ["l2"]}
+            "model": LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42),
+            "grid": {'classifier__C': [0.01, 0.1, 1.0, 10.0]}
         },
         "Random_Forest": {
-            "model": RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1),
-            "data": (X_train_df, X_test_df),
-            "params": {"n_estimators": [100, 200, 300], "max_depth": [8, 12, 16]}
-        },
-        "Gradient_Boosting": {
-            "model": GradientBoostingClassifier(random_state=42),
-            "data": (X_train_df, X_test_df),
-            "params": {"n_estimators": [100, 200], "learning_rate": [0.01, 0.05, 0.1], "max_depth": [4, 6]}
+            "model": RandomForestClassifier(class_weight='balanced', random_state=42),
+            "grid": {'classifier__n_estimators': [100, 200], 'classifier__max_depth': [6, 12]}
         },
         "XGBoost": {
-            "model": XGBClassifier(scale_pos_weight=scale_weight, eval_metric='logloss', random_state=42, n_jobs=-1),
-            "data": (X_train_df, X_test_df),
-            "params": {"n_estimators": [100, 200, 300], "learning_rate": [0.01, 0.05, 0.1], "max_depth": [4, 6]}
+            "model": XGBClassifier(scale_pos_weight=calculated_scale_weight, eval_metric='logloss', random_state=42),
+            "grid": {'classifier__n_estimators': [100, 150], 'classifier__learning_rate': [0.05, 0.1], 'classifier__max_depth': [4, 6]}
         }
     }
     
-    for model_name, config in model_configs.items():
-        X_tr, X_te = config["data"]
+    # Build core infrastructure filesystem folders
+    models_dir = "models"
+    plots_dir = "plots"
+    outputs_dir = "outputs"
+    for d in [models_dir, plots_dir, outputs_dir]:
+        os.makedirs(d, exist_ok=True)
         
-        with mlflow.start_run(run_name=model_name):
-            logger.info(f"Optimizing hyperparameter grids for: {model_name}")
+    logger.info("⚡ Executing parallel multi-model tuning architecture runs across MLflow profiles...")
+    
+    for model_name, config in model_configs.items():
+        with mlflow.start_run(run_name=f"Cluster_{model_name}"):
+            # Bind composite scaling preprocessor and raw estimator into unified pipeline 
+            full_pipeline = Pipeline([
+                ('preprocessor', preprocessor),
+                ('classifier', config['model'])
+            ])
             
+            # Orchestrate Stratified 5-Fold Grid Search
             grid_search = GridSearchCV(
-                estimator=config["model"],
-                param_grid=config["params"],
+                estimator=full_pipeline,
+                param_grid=config['grid'],
                 cv=5,
                 scoring='roc_auc',
-                n_jobs=-1,
-                verbose=0
+                n_jobs=-1
             )
             
-            grid_search.fit(X_tr, y_train)
+            grid_search.fit(X_train, y_train)
             best_model = grid_search.best_estimator_
             
-            preds = best_model.predict(X_te)
-            probs = best_model.predict_proba(X_te)[:, 1]
+            # Predict validation metrics
+            preds = best_model.predict(X_test)
+            probs = best_model.predict_proba(X_test)[:, 1]
             
+            # Generate metrics and print evaluation matrices
             auc_score = roc_auc_score(y_test, probs)
             report = classification_report(y_test, preds, output_dict=True)
             
-            # Log metrics out to MLflow server tracking dashboards
-            for p_name, p_val in grid_search.best_params_.items():
-                mlflow.log_param(f"best_{p_name}", p_val)
-                
-            mlflow.log_metric("Test_ROC_AUC", auc_score)
+            # Log structural metrics to remote dashboard interfaces
+            mlflow.log_params(grid_search.best_params_)
+            mlflow.log_metric("ROC_AUC", auc_score)
             mlflow.log_metric("Churn_Recall", report['1']['recall'])
-            mlflow.log_metric("Churn_F1_Score", report['1']['f1-score'])
+            mlflow.log_metric("F1_Score", report['1']['f1-score'])
             
-            if "XGBoost" in model_name:
-                mlflow.xgboost.log_model(best_model, name="model")
-            else:
-                mlflow.sklearn.log_model(best_model, name="model")
+            logger.info(f" [{model_name}] Parameter Optimization Array Sweep Finished.")
+            logger.info(f" [{model_name}] Eval AUC: {auc_score:.4f} | Target Churn Recall: {report['1']['recall']:.4f}")
+            
+            # Log core models back to active experiments context panels
+            mlflow.sklearn.log_model(
+                sk_model=best_model, 
+                artifact_path="model",
+                skops_trusted_types=[
+                    "numpy.dtype", 
+                    "numpy.core.multiarray._reconstruct",
+                    "numpy.ndarray",
+                    "xgboost.core.Booster",
+                    "xgboost.sklearn.XGBClassifier"
+                ]
+            )
                 
-            # Log Evaluation ROC Curve Image plots as binary run artifacts
+            # Render evaluation chart plots
             plt.figure(figsize=(6, 5))
             fpr, tpr, _ = roc_curve(y_test, probs)
             plt.plot(fpr, tpr, label=f'{model_name} (AUC = {auc_score:.3f})', color='darkorange', lw=2)
             plt.plot([0, 1], [0, 1], color='navy', linestyle='--')
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
-            plt.title(f'ROC Curve - {model_name}')
+            plt.title(f'Cluster-Segmented ROC Curve - {model_name}')
             plt.legend(loc="lower right")
             
-            plot_file = os.path.join(plots_dir, f"roc_curve_{model_name}.png")
+            plot_file = os.path.join(plots_dir, f"cluster_roc_{model_name}.png")
             plt.savefig(plot_file, dpi=150, bbox_inches='tight')
             plt.close()
             mlflow.log_artifact(plot_file)
             
-    logger.info(" Core cross-validated training suite complete.")
+            #  Serializing optimized instances safely to local disk workspace configurations
+            model_filename = os.path.join(models_dir, f"cluster_{model_name.lower()}_best.pkl")
+            joblib.dump(best_model, model_filename)
+            mlflow.log_artifact(model_filename)
+            logger.info(f"💾 Saved binary serialization layer path directly to: {model_filename}")
+            
+            #  Dynamically resolve and output localized feature interpretations
+            try:
+                fitted_preprocessor = best_model.named_steps['preprocessor']
+                try:
+                    all_features = fitted_preprocessor.get_feature_names_out().tolist()
+                except Exception:
+                    all_features = list(X_train.columns)
+                    
+                raw_estimator = best_model.named_steps['classifier']
+                
+                if "Logistic_Regression" in model_name:
+                    interpret_logistic_coefficients(raw_estimator, all_features, outputs_dir)
+                elif "XGBoost" in model_name:
+                    interpret_xgboost_importance(raw_estimator, all_features, outputs_dir)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not complete matrix extraction weights for {model_name}: {str(e)}")
+
+    logger.info(" Cluster-stratified model prediction pipeline execution complete.")
+

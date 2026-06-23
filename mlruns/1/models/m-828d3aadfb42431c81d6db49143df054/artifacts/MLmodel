@@ -1,0 +1,25 @@
+artifact_path: file:C:/Users/sangr/Desktop/Benori/mlruns/1/models/m-828d3aadfb42431c81d6db49143df054/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.12.11
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.0
+    skops_trusted_types:
+    - numpy.dtype
+    - numpy.core.multiarray._reconstruct
+mlflow_version: 3.14.0
+model_id: m-828d3aadfb42431c81d6db49143df054
+model_size_bytes: 6287280
+model_uuid: m-828d3aadfb42431c81d6db49143df054
+prompts: null
+run_id: 9e3e7eb88f6a4a198bc27c9bcabd601b
+utc_time_created: '2026-06-23 09:25:05.036598'

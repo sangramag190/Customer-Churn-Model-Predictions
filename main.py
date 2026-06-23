@@ -7,7 +7,7 @@ import logging
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.data_prep import run_data_preparation, create_customer_analytical_dataset
-from src.train import run_model_training_pipeline
+from src.train import run_cluster_based_training_pipeline
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (ORCHESTRATOR) : %(message)s")
 logger = logging.getLogger("Master_Execution_Pipeline")
@@ -37,7 +37,7 @@ def main():
         )
         
         logger.info(" STAGE 3/3: Running GridSearchCV Tuning loops via MLflow Contexts...")
-        run_model_training_pipeline(
+        run_cluster_based_training_pipeline(
             data_path=CUSTOMER_MATRIX_PATH,
             plots_dir=PLOTS_DIR
         )
