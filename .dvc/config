@@ -1,0 +1,4 @@
+[core]
+    remote = my_backup_remote
+['remote "my_backup_remote"']
+    url = C:\Users\sangr\Desktop\benori_backup
