@@ -3,7 +3,23 @@
 An end-to-end, reproducible machine learning architecture designed to predict customer defection risk within highly stratified retail and wholesale portfolios. The system utilizes automated product-driven clustering, adaptive lookforward safety windows, parallel `GridSearchCV` hyperparameter tuning, and comprehensive MLflow tracking.
 
 ---
+## STAGE 1: DATA PREPARATION:
+• Ingests raw transactional matrices.        
+• Cleaned and Prepared the data for missing values and Imputes missing indices vectorially.       
+• Targeted drop of extreme global outliers to preserve wholesale buyer variance.
 
+## STAGE 2: CLUSTER-BASED SAFETY FENCING
+• Segments profiles into product K-Means.    
+• Dynamically assigns lookforward thresholds:
+    - Cluster 0 (Retail Fast): 140 Days        
+    - Cluster 1 (Retail Standard): 158 Days    
+    - Cluster 2 (Wholesale Bulk): 269 Days
+
+## STAGE 3: TUNING, LOGGING & EXPORT
+• Runs cross-validated parameter grids.      
+• Generates ROC-AUC validation curves.       
+• Exports interpretation weights & gains.    
+• Serializes stable production .pkl files.
 
 ---
 
